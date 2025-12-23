@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能文档解析阅读器 (Pro 版)</title>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-light.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it-texmath@1.0.0/texmath.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/contrib/auto-render.min.js"></script>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        // 配置 PDF.js Worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+
+    <style>
+        /* ==================== 2. 全局与基础布局 ==================== */
+        body { 
+            margin: 0; padding: 0; display: flex; height: 100vh; 
+            font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; 
+            background-color: #f6f8fa; overflow: hidden; position: relative; 
+        }
+
+        /* 动态背景层 */
+        #bgLayer {
+            content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url("{{ url_for('static', filename='assets/bg.png') }}");
+            background-size: cover; background-position: center; background-attachment: fixed;
+            opacity: 1; z-index: -1; pointer-events: none;
+        }
+
+        /* 拖拽上传覆盖层样式 */
+        body.drag-over::before { 
+            content: "📄 释放文件以极速上传"; 
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(31,113,235,0.3); z-index: 10000; 
+            display: flex; justify-content: center; align-items: center; 
+            color: white; font-size: 30px; pointer-events: none; 
+            backdrop-filter: blur(4px);
+        }
+
+        /* 左右分栏布局容器 */
+        .editor-container { width: 40%; height: 100%; display: flex; flex-direction: column; min-width: 200px; z-index: 1; }
+        .preview-container { 
+            flex: 1; height: 100%; overflow-y: auto; 
+            background-color: rgba(255,255,255,0.9); 
+            padding: 40px; box-sizing: border-box; min-width: 300px; 
+            position: relative; z-index: 1;
+            font-size: 16px; transition: font-size 0.2s ease;
+        }
+        .resizer { width: 5px; height: 100%; background-color: #ddd; cursor: col-resize; z-index: 2; }
+
+        /* ==================== 3. UI 组件样式 (Header/Buttons) ==================== */
+        .header { 
+            padding: 0 20px; background: #a59aa0; color: white; 
+            display: flex; align-items: center; justify-content: space-between; 
+            height: 50px; flex-shrink: 0; 
+        }
+        .header-title { font-weight: bold; font-size: 16px; }
+
+        .btn-group { display: flex; gap: 10px; }
+        .btn { 
+            border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; 
+            padding: 6px 12px; font-size: 13px; font-weight: bold; cursor: pointer; 
+            color: white; background-color: rgba(255,255,255,0.1); text-decoration: none;
+            transition: background 0.2s;
+        }
+        .btn:hover { background-color: rgba(255,255,255,0.2); }
+        .btn-primary { background-color: #bbd3df; } .btn-primary:hover { background-color: #aec3cf; }
+        .btn-accent { background-color: #b8c0ed; } .btn-accent:hover { background-color: #abb2dc; }
+        .btn-picture { background-color: #ebb5c8; } .btn-picture:hover { background-color: #e09aa4; }
+
+        /* 底部控制栏 */
+        #footerControl {
+            padding: 10px 20px; background-color: rgba(255, 255, 255, 0.95);
+            border-top: 1px solid #ddd; display: flex; justify-content: flex-end; flex-shrink: 0;
+        }
+        .font-control { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #333; }
+        
+        textarea#source { 
+            width: 100%; flex-grow: 1; border: none; border-right: 1px solid #ddd; 
+            padding: 20px; font-size: 14px; font-family: 'Consolas', monospace; 
+            resize: none; outline: none; background-color: rgba(252,252,252,0.95); 
+        }
+
+        /* ==================== 4. Markdown 与 Math 公式专项优化 ==================== */
+        /* 覆盖 Markdown 默认字体，更像论文 */
+        .markdown-body { font-family: "Times New Roman", Times, serif; }
+
+        /* KaTeX 公式容器优化：防止过长公式溢出 */
+        .markdown-body .katex-display {
+            display: block; margin: 1.4em 0 !important; padding: 15px 0;
+            width: 100%; overflow-x: auto; text-align: center;
+        }
+        .markdown-body .katex { margin: 0 3px; font-size: 1.2em; } /* 行内公式微调 */
+
+        /* 针对 cases 环境（方程组）内部的行间距微调 */
+        .markdown-body .matrix-dot {
+            margin-top: 5px;
+        }
+
+        /* 图片与表格居中 */
+        .markdown-body img { display: block; margin: 0 auto; max-width: 80%; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .markdown-body table { margin: 0 auto; display: table; width: auto; min-width: 50%; }
+        .markdown-body table + p, .markdown-body img + p { text-align: center; font-size: 0.9em; color: #666; margin-top: 10px; }
+
+        /* 翻译对照块样式 */
+        .markdown-body blockquote {
+            margin: 10px 0 25px 0; padding: 10px 20px;
+            color: #555; background-color: #f9fdfc;
+            border-left: 4px solid #5bbeb0; border-radius: 0 8px 8px 0;
+            font-style: normal; line-height: 1.6;
+        }
+        /* 原文段落样式 */
+        .markdown-body p:not(blockquote p) { font-weight: 500; color: #000; margin-bottom: 5px; }
+        /* 引用块内的公式加深颜色 */
+        .markdown-body blockquote .katex-display { color: #333; }
+
+        /* 让 Markdown 表格在预览区更美观，且支持横向滚动 */
+        .markdown-body table { 
+            margin: 15px auto; 
+            display: block; /* 关键：允许 overflow 生效 */
+            width: max-content; 
+            max-width: 100%; 
+            overflow-x: auto; 
+            border-collapse: collapse;
+        }
+
+        .markdown-body th, .markdown-body td {
+            border: 1px solid #dfe2e5;
+            padding: 6px 13px;
+        }
+
+        .markdown-body tr:nth-child(2n) {
+            background-color: #f6f8fa;
+        }
+
+        /* ==================== 5. PDF 阅读器核心样式 ==================== */
+        #pdfViewer {
+            flex: 1; overflow-y: scroll; background-color: #525659;
+            display: none; padding: 10px; box-sizing: border-box;
+            /* 关键修复：防止 Flex 布局压缩 */
+            min-height: 1px; min-width: 1px;
+        }
+        #pdfViewer canvas {
+            display: block; margin: 0 auto 15px auto; 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            /* 关键修复：保证 Canvas 响应式且不失真 */
+            max-width: 100%; height: auto !important; 
+        }
+
+        /* ==================== 6. 模态框与遮罩层 ==================== */
+        /* 身份登录层 */
+        #loginOverlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            z-index: 99999; display: flex; justify-content: center; align-items: center; color: white;
+            transition: opacity 0.5s ease;
+        }
+        .login-card {
+            background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(10px);
+            padding: 40px; border-radius: 20px; box-shadow: 0 8px 32px rgba(31,38,135,0.37);
+            border: 1px solid rgba(255,255,255,0.18); text-align: center; max-width: 600px; width: 90%;
+        }
+        .user-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 20px; margin-top: 30px; }
+        .user-btn {
+            background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.5);
+            border-radius: 12px; padding: 15px; color: white; cursor: pointer; font-weight: bold;
+            transition: transform 0.3s;
+        }
+        .user-btn:hover { background: white; color: #764ba2; transform: translateY(-5px); }
+        .user-avatar { font-size: 30px; display: block; margin-bottom: 10px; }
+
+        /* 加载中遮罩 */
+        #loadingOverlay { 
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(255,255,255,0.9); z-index: 10001; 
+            justify-content: center; align-items: center; flex-direction: column; 
+        }
+        .spinner { 
+            border: 4px solid #f3f3f3; border-top: 4px solid #0969da; border-radius: 50%; 
+            width: 40px; height: 40px; animation: spin 1s linear infinite; 
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* 历史记录模态框 */
+        #historyModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 20000; justify-content: center; align-items: center; }
+        #downloadLink { position: absolute; top: 20px; right: 30px; z-index: 100; display: none; }
+    </style>
+</head>
+
+<body>
+    <div id="loginOverlay">
+        <div class="login-card">
+            <h1>🚀 欢迎！</h1>
+            <p style="opacity: 0.8;">请选择你的身份档案以继续</p>
+            <div class="user-grid">
+                <button class="user-btn" onclick="app.auth.selectUser('s1', '王浩懿')"><span class="user-avatar"></span>王浩懿</button>
+                <button class="user-btn" onclick="app.auth.selectUser('s2', '王牧虹')"><span class="user-avatar"></span>王牧虹</button>
+                <button class="user-btn" onclick="app.auth.selectUser('s3', '陈妤何')"><span class="user-avatar"></span>陈妤何</button>
+                <button class="user-btn" onclick="app.auth.selectUser('s4', '同伴 D')"><span class="user-avatar"></span>同伴 D</button>
+                <button class="user-btn" onclick="app.auth.selectUser('s5', '同伴 E')"><span class="user-avatar"></span>同伴 E</button>
+                <button class="user-btn" onclick="app.auth.selectUser('s6', '同伴 F')"><span class="user-avatar"></span>同伴 F</button>
+                <button class="user-btn" onclick="app.auth.selectUser('s7', '同伴 G')"><span class="user-avatar"></span>同伴 G</button>
+                <button class="user-btn" onclick="app.auth.selectUser('s8', '默认')"><span class="user-avatar"></span>默认</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="bgLayer"></div>
+    <div id="loadingOverlay">
+        <div class="spinner"></div>
+        <p style="margin-top: 15px; color: #333; font-weight: bold;">AI 正在进行版面分析与转换...</p>
+        <p style="font-size: 12px; color: #666;">由于PDF为AI视觉读取，大文件可能需要 2-3 分钟，请歇歇脚，不要刷新哦</p>
+    </div>
+
+    <div class="editor-container" id="leftPane">
+        <div class="header">
+            <span class="header-title">论文阅读器</span>
+            <div class="btn-group">
+                <input type="file" id="pdfInput" accept=".pdf,.png,.jpg,.jpeg" multiple style="display:none">
+                <input type="file" id="bgInput" accept=".png,.jpg,.jpeg,.webp" style="display:none">
+
+                <div class="control-item">
+                    <input type="checkbox" id="translateToggle" style="margin-right: 6px; cursor: pointer;">
+                    <label for="translateToggle" style="cursor: pointer; font-size: 13px; color: #555;">开启AI双语翻译</label>
+                </div>
+
+                <button class="btn btn-picture" onclick="document.getElementById('bgInput').click()">🖼️ 壁纸</button>
+                <button class="btn btn-primary" onclick="app.ui.openHistoryModal()">📂 历史记录</button>
+                <button class="btn btn-accent" id="uploadBtn" onclick="document.getElementById('pdfInput').click()">☁️ PDF识别</button>
+            </div>
+        </div>
+
+        <textarea id="source" placeholder="支持拖拽上传 PDF/图片/Markdown..." oninput="app.render.run()"></textarea>
+        <div id="pdfViewer"></div>
+        
+        <div id="footerControl">
+            <div class="font-control" title="调整右侧预览区字体大小">
+                <span>字体大小:</span>
+                <input type="range" id="fontSizeSlider" min="12" max="24" value="16" step="1">
+                <span id="fontSizeVal">16px</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="resizer" id="dragHandle"></div>
+
+    <div class="preview-container markdown-body" id="preview">
+        <a id="downloadLink" class="btn btn-primary" href="#">💾 下载 Markdown文件</a>
+        <div id="previewContent"></div>
+    </div>
+
+    <div id="historyModal">
+        <div style="background: white; width: 500px; max-height: 60%; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
+            <div style="padding: 15px; background: #f6f8fa; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0;">📜 历史文档库</h3>
+                <button onclick="document.getElementById('historyModal').style.display='none'" style="border: none; background: none; cursor: pointer; font-size: 20px;">×</button>
+            </div>
+            <div id="historyList" style="flex: 1; overflow-y: auto; padding: 10px;">
+                <p style="text-align: center; color: #666;">加载中...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================================
+        // 🔴 全局命名空间与配置 (State Management)
+        // ============================================================================
+        const app = {
+            state: {
+                currentUser: 's1',
+                currentUserName: '队长',
+                currentMdPath: null,    // 记录 GitHub 上的 MD 路径
+                originalMdContent: "",  // 缓存原文，用于关闭翻译时回退
+                pdfDoc: null,
+                pageHeights: [],        // 每一页 PDF 高度，用于同步滚动
+                lastSyncedPage: 1
+            },
+            
+            // DOM 元素缓存
+            dom: {
+                source: document.getElementById('source'),
+                preview: document.getElementById('preview'),
+                previewContent: document.getElementById('previewContent'),
+                pdfViewer: document.getElementById('pdfViewer'),
+                loadingOverlay: document.getElementById('loadingOverlay'),
+                uploadBtn: document.getElementById('uploadBtn'),
+                downloadLink: document.getElementById('downloadLink'),
+                translateToggle: document.getElementById('translateToggle')
+            },
+
+            // Markdown 引擎初始化
+            md: window.markdownit({ html: true, breaks: true, linkify: true })
+                .use(texmath, { engine: katex, delimiters: 'dollars', katexOptions: { trust: true, strict: false } })
+        };
+
+        // ============================================================================
+        // 🔵 模块 1：身份验证与用户系统 (Auth Module)
+        // ============================================================================
+        app.auth = {
+            selectUser: (id, name) => {
+                app.state.currentUser = id;
+                app.state.currentUserName = name;
+                
+                // 界面反馈
+                const overlay = document.getElementById('loginOverlay');
+                overlay.style.opacity = '0';
+                setTimeout(() => overlay.style.display = 'none', 500);
+                
+                document.title = `文档阅读器 - ${name}`;
+                document.querySelector('.header-title').innerText = `论文阅读器.user:${name}`;
+                console.log(`✅ 身份已确认为: ${name} (${id})`);
+
+                // ==================== 🟢 新增：触发后台预加载 ====================
+                // 这是一个“发射后不管”的请求，不需要 await
+                console.log("🚀 触发后台历史记录预加载...");
+                fetch('/history/preload', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ user: id })
+                }).catch(e => console.warn("预加载触发失败", e));
+            }
+        };
+
+        // ============================================================================
+        // 🔵 模块 2：渲染核心 (Rendering Engine - Markdown & Clean)
+        // ============================================================================
+        app.render = {
+            run: () => {
+                // 执行清洗与渲染
+                const cleanText = app.render.smartClean(app.dom.source.value);
+                app.dom.previewContent.innerHTML = app.md.render(cleanText);
+
+                // 渲染数学公式 (KaTeX 自动渲染)
+                if (window.renderMathInElement) {
+                    renderMathInElement(app.dom.previewContent, { 
+                        delimiters: [
+                            {left: "$$", right: "$$", display: true}, 
+                            {left: "$", right: "$", display: false}
+                        ],
+                        throwOnError: false, strict: false, trust: true
+                    });
+                }
+            },
+            // 核心：文本清洗与 LaTeX 容错适配 (解决 OCR 乱码和公式变红)
+            smartClean: (content) => {
+                if (!content) return "";
+                let clean = content;
+
+                // --- 🟢 步骤 1：全局清理公式块外部的孤立引用符 ---
+                // 很多时候翻译插件会在两个 $$ 之间加一个 > ，先把它干掉
+                clean = clean.replace(/\$\$\s*>\s*\$\$/g, '');
+
+                // --- 🟢 第一步：图片“保险箱”隔离 (防止泄露与干扰) ---
+                const imgVault = [];
+                clean = clean.replace(/!\[.*?\]\(data:image\/.*?;base64,.*?\)/g, (match) => {
+                    imgVault.push(match);
+                    return `__IMG_HOLDER_${imgVault.length - 1}__`; // 暂时用占位符替代
+                });
+
+                // --- 2. 物理清除：无用行与噪声 (PDF/OCR 残留) ---
+                // A. 移除孤立的数字行 (1-4位数字，如页码 1 或年份 19xx)
+                clean = clean.replace(/^\s*\d{1,4}\s*$/gm, '');
+                // B. 移除 OCR 产生的装饰性横线或灰线
+                clean = clean.replace(/^\s*[-_]{3,}\s*$/gm, '');
+                // C. 移除孤立的特殊符号行
+                clean = clean.replace(/^\s*[↪\u21aa]\s*$/gm, '');
+
+                // B. 移除空的翻译条 (只有 ">" 的行)
+                clean = clean.replace(/^>\s*$/gm, '');
+
+    
+
+                // 1. 🟢 基础符号还原
+                const entityMap = {
+                    '&lt;': '<', '&gt;': '>', '&amp;': '&',
+                    '&le;': '\\le', '&ge;': '\\ge', '&plusmn;': '\\pm',
+                    '&amp;lt;': '<', '&amp;gt;': '>', '&amp;amp;lt;': '<'
+                };
+                Object.keys(entityMap).forEach(key => {
+                    clean = clean.split(key).join(entityMap[key]);
+                });
+                
+                // 1. 结构化：页面分隔符转为隐形锚点
+                // --- 🟢 结构化修复：精准处理页面分隔符 (防止 1,3,5 跳变) ---
+                // 1. 先将所有可能的变体统一化
+                clean = clean.replace(/\[\[\s*PAGE_BREAK\s*\]\]/g, '[[PAGE_BREAK]]');
+
+                // 2. 核心去重：如果在很短的距离内（比如 500 字内）出现了两个 PAGE_BREAK，通常是双语重复，删掉第二个
+                // 我们使用一个临时数组来记录 marker 位置，进行距离校验
+                let lastMarkerPos = -1;
+                clean = clean.replace(/\[\[PAGE_BREAK\]\]/g, (match, offset) => {
+                    // 如果两个分隔符距离小于 100 字符（说明是紧挨着的原文/译文分隔符），只保留一个
+                    if (lastMarkerPos !== -1 && (offset - lastMarkerPos) < 100) {
+                        return ""; 
+                    }
+                    lastMarkerPos = offset;
+                    return match;
+                });
+
+                // 3. 最后转换为隐藏的 HTML 锚点
+                clean = clean.replace(/\[\[PAGE_BREAK\]\]/g, 
+                    '<div class="sync-page-marker" style="height:1px; width:100%; clear:both; margin-top:10px; visibility:hidden;"></div>');
+                
+                // --- 🟢 重点：只要出现 {array}[] 或 {array} [任意内容]，一律转为标准 {array} ---
+                // 这个正则会匹配 {array} 后面紧跟的任何被 [] 包裹的内容，并将其删掉
+                clean = clean.replace(/(\{array\})\s*\[[\s\S]*?\]/g, '$1');
+
+                // 2. 公式块修复：\[ ... \] -> $$ ... $$，并提取 (1) 为 \tag{1}
+                clean = clean.replace(/\\\[([\s\S]*?)\\\]/g, (match, body) => {
+                    let formula = body.trim();
+                    
+                    const tagMatch = formula.match(/\s*\((\d+[\.\d]*)\)$/);
+                    if (tagMatch) {
+                        let label = tagMatch[1];
+                        let pureFormula = formula.replace(/\s*\(\d+[\.\d]*\)$/, '');
+                        return '$$ ' + pureFormula + ' \\tag{' + label + '} $$';
+                    }
+                    return '$$' + formula + '$$';
+                });
+
+                // 3. 深度清洗 $$ 内部 (解决 \left \right 不匹配导致的红字)
+                clean = clean.replace(/\$\$([\s\S]*?)\$\$/g, (match, body) => {
+                    let fixed = body.trim();
+                    // --- 🟢 改进版去重逻辑：防止误杀多行公式 ---
+                    // 逻辑：只有当检测到两个或更多 \tag 时，才认为是 OCR 重复识别，执行截断
+                    const allTags = fixed.match(/\\tag\s*\{\d+[\.\d]*\}/g);
+                    if (allTags && allTags.length > 1) {
+                        // 找到第一个 \tag 的结束位置
+                        const firstTagMatch = fixed.match(/([\s\S]*?\\tag\s*\{\d+[\.\d]*\})/);
+                        if (firstTagMatch) {
+                            fixed = firstTagMatch[1];
+                            // 补齐可能被截掉的环境闭合符 (保险措施)
+                            if (fixed.includes('\\begin{array}') && !fixed.includes('\\end{array}')) {
+                                fixed += ' \\end{array}';
+                            }
+                        }
+                    }
+
+
+                    // B. 基础语法清理与 HTML 还原
+                    fixed = fixed.replace(/[\r\n]+/g, ' ').replace(/&amp;/g, '&').replace(/>/g, '');
+                    // 暴力移除不匹配的定界符
+                    fixed = fixed.replace(/\\left\\\|/g, '\\|').replace(/\\right\\\|/g, '\\|') // 修复范数 ||
+                                .replace(/\\left\(/g, '(').replace(/\\right\)/g, ')')         // 修复圆括号
+                                .replace(/\\left\[/g, '[').replace(/\\right\]/g, ']')         // 修复方括号
+                                .replace(/\\left\\\{/g, '\\{').replace(/\\right\\}/g, '\\}')  // 修复花括号
+                                .replace(/\\right\.?/g, '')                                  // 移除残留的 \right.
+                                .replace(/\\left\.?/g, '');
+                                
+                    // 🟢 B. 差异化间距处理
+                    // 逻辑：如果公式中包含 matrix 关键字，则视为矩阵，保持紧凑；
+                    // 否则，针对包含 \frac 的多行公式增加间距。
+                    const isMatrix = /matrix|smallmatrix|cases/.test(fixed);
+
+                    if (!isMatrix) {
+                        // 仅针对非矩阵、且包含分式的多行公式增加间距
+                        if (fixed.includes('\\frac') || fixed.includes('\\dfrac')) {
+                            fixed = fixed.replace(/\\\\/g, '\\\\[0.8em] ');
+                        } else {
+                            fixed = fixed.replace(/\\\\/g, '\\\\[0.4em] ');
+                        }
+                    }
+
+                    // C. 编号二次提取：如果公式内部还藏着 (9)，将其转为标准的 \tag{9}
+                    if (!fixed.includes('\\tag')) {
+                        const innerTag = fixed.match(/\s*\((\d+[\.\d]*)\)\s*$/);
+                        if (innerTag) {
+                            fixed = fixed.replace(innerTag[0], '') + ' \\tag{' + innerTag[1] + '}';
+                        }
+                    }
+            
+                    // D. 格式规范化：移除 \tag 前多余的逗号
+                    fixed = fixed.replace(/[,，。]\s*\\tag/g, ' \\tag');
+                    
+                    // E. 自动补全环境：处理方程组或多行对齐
+                    if (fixed.includes('\\{') && fixed.includes('\\\\')) {
+                        // 如果包含左大括号和换行，强制转为 cases 环境
+                        // 2. 🟢 核心优化：将 \\ 替换为 \\[0.5em] 增加垂直间距，防止重合
+                        let spacedBody = fixed.replace(/\\\\/g, '\\\\[0.3em] ');
+                        fixed = '\\begin{cases} ' + fixed.replace(/\\\{/g, '') + ' \\end{cases}';
+                    } else if (fixed.includes('&') && !fixed.includes('\\begin')) {
+                        // 如果包含对齐符但没有环境，强制转为 aligned 环境
+                        // 同理，为对齐环境增加垂直间距
+                        let spacedBody = fixed.replace(/\\\\/g, '\\\\[0.3em] ');
+                        fixed = '\\begin{aligned} ' + fixed + ' \\end{aligned}';
+                    }
+
+                    return '$$' + fixed + '$$';
+                });
+
+                // --- 4. 行内公式修复 ---
+                // 移除行内公式 $ ... $ 内部的首尾空格，防止解析失败
+                clean = clean.replace(/(\$)( +)([^$\n]+?)( +)(\$)/g, "$$$3$$");
+
+                // --- 5. 垃圾信息与表格清理 ---
+                clean = clean.replace(/^Team\s*#.*$/gm, "")                // 移除 OCR 团队标记
+                             .replace(/^Page\s*\d+\s+of\s+\d+.*$/gm, "")  // 移除页码
+                             .replace(/<\/table>/gi, "</table>\n\n");     // 强制表格后换行
+
+                // --- 6. 广告字段与垃圾信息清理 (精准版) ---
+
+                // A. 组合匹配：地区名 + 模型名 (例如：天津数学模型)
+                const regions = '上海|天津|文汇|云江|太江|云计|交往|数学院所';
+                const models = '数学模型|数字模型|上海|天津|文汇|云江|太江|云计|交往|数学院所';
+                const combinedRegex = new RegExp(`^.*(${regions})\\s*(${models}).*$`, 'gm');
+
+                // B. 特征匹配：只要包含这些词，整行通常都是广告 (例如：获取更多资讯)
+                const adFeatures = '资讯|数学模型|数字模型|上海|天津|文汇|云江|太江|云计|交往|数学院所|國立臺灣大學';
+                const featureRegex = new RegExp(`^.*(${adFeatures}).*$`, 'gm');
+
+                clean = clean.replace(combinedRegex, "")  // 只有 地区+模型 同时出现才删
+                             .replace(featureRegex, "")   // 包含“获取更多资讯”直接删
+                             .replace(/^Team\s*#.*$/gm, "") 
+                             .replace(/^Page\s*\d+\s+of\s+\d+.*$/gm, "")
+                             .replace(/\n{3,}/g, "\n\n")
+                             .replace(/<\/table>/gi, "</table>\n\n");
+
+                // --- 🟢 第四步：从“保险箱”取回图片 ---
+                imgVault.forEach((imgRaw, index) => {
+                    clean = clean.replace(`__IMG_HOLDER_${index}__`, imgRaw);
+                });
+
+                return clean.trim();
+            }
+        };
+
+        // ============================================================================
+        // 🔵 模块 3：PDF 引擎 (PDF Engine - Viewer & Sync)
+        // ============================================================================
+        app.pdf = {
+            // 渲染 PDF 文件或 URL
+            render: async (fileOrUrl) => {
+                const viewer = app.dom.pdfViewer;
+                app.dom.source.style.display = 'none';
+                viewer.style.display = 'block';
+                viewer.innerHTML = ''; 
+                app.state.pageHeights = [];
+
+                let docUrl = typeof fileOrUrl === 'string' ? fileOrUrl : URL.createObjectURL(fileOrUrl);
+                
+                // 加载 PDF (指定 cMapUrl 支持中文)
+                const loadingTask = pdfjsLib.getDocument({
+                    url: docUrl,
+                    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+                    cMapPacked: true,
+                });
+                app.state.pdfDoc = await loadingTask.promise;
+
+                // 逐页渲染
+                for (let pageNum = 1; pageNum <= app.state.pdfDoc.numPages; pageNum++) {
+                    const page = await app.state.pdfDoc.getPage(pageNum);
+                    const originalViewport = page.getViewport({ scale: 1 });
+                    
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.id = `pdf-page-${pageNum}`;
+                    // 关键：Canvas 宽度设为原始宽度，通过 CSS 控制缩放
+                    canvas.width = page.getViewport({ scale: 1.5 }).width;
+                    canvas.height = page.getViewport({ scale: 1.5 }).height;
+                    canvas.style.width = `${originalViewport.width}px`; 
+                    canvas.style.margin = "0 auto 3px auto";
+                    canvas.style.display = "block";
+
+                    await page.render({ canvasContext: context, viewport: page.getViewport({ scale: 1.5 }) }).promise;
+                    viewer.appendChild(canvas);
+                    app.state.pageHeights.push(canvas.clientHeight + 15);
+                }
+                
+                app.pdf.bindSyncScroll();
+            },
+
+            // 重新设计的同步滚动监听
+            bindSyncScroll: () => {
+                const preview = app.dom.preview;
+                const pdfViewer = app.dom.pdfViewer;
+                let isScrolling = false;
+
+                preview.addEventListener('scroll', () => {
+                    if (isScrolling) return;
+
+                    const markers = Array.from(preview.querySelectorAll('.sync-page-marker'));
+                    if (!markers.length || pdfViewer.style.display === 'none') return;
+                
+                    const previewScrollTop = preview.scrollTop;
+                    // 降低触发线灵敏度，设为视口顶部
+                    const triggerPoint = previewScrollTop; 
+                
+                    let activeIndex = 0;
+                    for (let i = 0; i < markers.length; i++) {
+                        if (markers[i].offsetTop <= triggerPoint) {
+                            activeIndex = i;
+                        } else {
+                            break;
+                        }
+                    }
+                
+                    const currentMarker = markers[activeIndex];
+                    const nextMarker = markers[activeIndex + 1];
+                    const currentPageNum = activeIndex + 1;
+                
+                    let progress = 0;
+                    let debugData = {
+                        "当前页码": currentPageNum,
+                        "预览区滚动位": Math.round(previewScrollTop),
+                        "当前Marker位置": currentMarker.offsetTop,
+                    };
+                
+                    if (nextMarker) {
+                        const range = nextMarker.offsetTop - currentMarker.offsetTop;
+                        const offset = previewScrollTop - currentMarker.offsetTop;
+                        progress = offset / range;
+
+                        debugData["下一页Marker"] = nextMarker.offsetTop;
+                        debugData["两Marker间距(px)"] = range;
+                        debugData["页内进度%"] = (progress * 100).toFixed(2) + "%";
+                    }
+                
+                    // 🟢 控制台调试输出 (关键)
+                    if (app.state.debugMode) {
+                        console.clear();
+                        console.table(debugData);
+                    }
+                
+                    isScrolling = true;
+                    app.pdf.smoothSync(currentPageNum, progress);
+
+                    setTimeout(() => { isScrolling = false; }, 30);
+                });
+            },
+
+            smoothSync: (pageNum, progress) => {
+                const viewer = app.dom.pdfViewer;
+                const currentPageElement = document.getElementById(`pdf-page-${pageNum}`);
+                        
+                // 只有当页码真的发生改变时，才执行跳转，保留用户在页面内的阅读自主权
+                if (currentPageElement && app.state.lastSyncedPage !== pageNum) {
+                    app.state.lastSyncedPage = pageNum;
+                
+                    viewer.scrollTo({
+                        top: currentPageElement.offsetTop,
+                        behavior: 'smooth' // 使用平滑滚动，不干扰视线
+                    });
+                    console.log(`[同步] 已跳转至 PDF 第 ${pageNum} 页`);
+                }
+            }
+        };
+
+        // ============================================================================
+        // 🔵 模块 4：网络与 API 交互 (Network Module)
+        // ============================================================================
+        app.network = {
+            // 处理文件上传与 OCR
+            handleOCRUpload: async (file, current, total) => {
+
+                // 1. 立即锁定翻译开关，防止识别过程中或结束后二次点击
+                app.dom.translateToggle.disabled = true; 
+                const isTranslationMode = app.dom.translateToggle.checked;
+
+                // UI 状态更新
+                app.ui.setLoading(true, 
+                    total > 1 ? `[${current}/${total}] 正在识别: ${file.name}` : "Mistral AI 正在极速阅读...",
+                    "PDF 视觉读取中，请稍候...");
+                
+                app.dom.uploadBtn.disabled = true;
+
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('user', app.state.currentUser);
+
+                try {
+                    const res = await fetch('/upload', { method: 'POST', body: formData });
+                    if (!res.ok) throw new Error(res.statusText);
+                    const result = await res.json();
+
+                    // 更新状态
+                    app.state.currentMdPath = result.gh_path;
+                    app.state.originalMdContent = result.markdown;
+                    app.dom.source.value = result.markdown;
+                    
+                    // 渲染
+                    app.render.run();
+                    setTimeout(() => app.pdf.render(file), 100); // 异步渲染 PDF
+
+                    // 设置下载链接
+                    if (result.download_url) {
+                        app.dom.downloadLink.href = result.download_url;
+                        app.dom.downloadLink.style.display = 'block';
+                    }
+
+                    // 2. 根据上传前的预设状态决定是否翻译
+                    if (isTranslationMode) {
+                        await app.network.performTranslation(result.gh_path);
+                    }
+
+                } catch (err) {
+                    alert("识别失败: " + err.message);
+                } finally {
+                    if (current === total) {
+                        app.ui.setLoading(false);
+                        app.dom.uploadBtn.disabled = false;
+                    }
+                }
+            },
+
+            // // 翻译功能
+            // handleTranslationToggle: async () => {
+            //     const isChecked = app.dom.translateToggle.checked;
+            //     if (!isChecked) {
+            //         // 关闭：回退到原文
+            //         if (app.state.originalMdContent) {
+            //             app.dom.source.value = app.state.originalMdContent;
+            //             app.render.run();
+            //         }
+            //     } else {
+            //         // 开启：调用 API
+            //         if (app.state.currentMdPath) await app.network.performTranslation(app.state.currentMdPath);
+            //     }
+            // },
+
+            performTranslation: async (ghPath) => {
+                if (!ghPath) return;
+                app.ui.setLoading(true, "正在调用 DeepSeek 进行学术翻译...", "正在保护公式并重组双语段落...");
+                
+                try {
+                    const res = await fetch('/translate', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ path: ghPath })
+                    });
+                    const data = await res.json();
+                    app.dom.source.value = data.content;
+                    app.render.run();
+                } catch (err) {
+                    alert("翻译失败: " + err.message);
+                    app.dom.translateToggle.checked = false;
+                } finally {
+                    app.ui.setLoading(false);
+                }
+            },
+
+            // 历史记录列表
+            fetchHistory: async () => {
+                const listContainer = document.getElementById('historyList');
+                listContainer.innerHTML = '<p style="text-align: center;">正在同步 GitHub...</p>';
+                try {
+                    const res = await fetch(`/history/list?user=${app.state.currentUser}`);
+                    const list = await res.json();
+                    if (!list.length) {
+                        listContainer.innerHTML = '<p style="text-align: center; color: #999;">暂无记录</p>';
+                        return;
+                    }
+                    
+                    listContainer.innerHTML = '';
+                    list.forEach(item => {
+                        const div = document.createElement('div');
+                        div.style.cssText = "padding: 12px; border-bottom: 1px solid #eee; cursor: pointer;";
+                        div.onmouseover = () => div.style.background = "#f0f8ff";
+                        div.onmouseout = () => div.style.background = "white";
+                        div.innerHTML = `<div><b>${item.name}</b></div><div style="font-size:12px;color:#888;">${new Date(item.timestamp*1000).toLocaleString()}</div>`;
+                        div.onclick = () => app.network.loadHistoryItem(item);
+                        listContainer.appendChild(div);
+                    });
+                } catch (e) { listContainer.innerHTML = "加载失败"; }
+            },
+
+            loadHistoryItem: async (item) => {
+                document.getElementById('historyModal').style.display = 'none';
+
+                // 打开历史文档时，关闭翻译开关并锁定
+                app.dom.translateToggle.checked = false;
+                app.dom.translateToggle.disabled = true;
+
+                app.ui.setLoading(true, "正在从云端拉取...", "数据来自 GitHub 档案库");
+                
+                app.state.currentMdPath = item.md_path;
+                app.dom.translateToggle.checked = false;
+
+                try {
+                    const mdText = await (await fetch(item.md_url)).text();
+                    app.state.originalMdContent = mdText;
+                    app.dom.source.value = mdText;
+                    app.render.run();
+                    
+                    window.requestAnimationFrame(() => app.pdf.render(item.pdf_url));
+                } catch (e) { alert("加载失败"); } 
+                finally { app.ui.setLoading(false); }
+            }
+        };
+
+        // ============================================================================
+        // 🔵 模块 5：UI 交互与初始化 (UI & Init)
+        // ============================================================================
+        app.ui = {
+            setLoading: (show, msg1, msg2) => {
+                const el = app.dom.loadingOverlay;
+                el.style.display = show ? 'flex' : 'none';
+                if (show && msg1) {
+                    const ps = el.querySelectorAll('p');
+                    if (ps[0]) ps[0].innerText = msg1;
+                    if (ps[1]) ps[1].innerText = msg2 || "";
+                }
+            },
+            
+            openHistoryModal: () => {
+                document.getElementById('historyModal').style.display = 'flex';
+                app.network.fetchHistory();
+            }
+        };
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            // 1. 设置默认欢迎语
+            app.dom.source.value = "# 欢迎使用论文阅读器\n\n这是一个专为我们小队打造的**全能文档解析与阅读平台**。在这里，你可以轻松将英文PDF论文转换为高质量的 Markdown文本，并搭配**沉浸式翻译**浏览器插件进行翻译。\n\n **✨核心功能一览**\n\n1.**☁️ 智能 PDF 识别**\n 点击上方的`☁️ PDF识别`按钮，上传你的 PDF文件。\n**模型驱动**：利用 Mistral AI大模型通过视觉OCR进行深度版面分析。\n**公式还原**：完美支持 LaTeX 数学公式，如 $\\oint_C \\mathbf{F} \\cdot d\\mathbf{r} = \\iint_S (\\nabla \\times \\mathbf{F}) \\cdot d\\mathbf{S}$。\n**图文并茂**：图片会自动嵌入文档，无需担心丢失。\n\n2.**📜 历史档案库**\n 点击`📂 历史记录`，随时回溯你的文档。\n**身份隔离**：每位成员拥有独立的历史记录。\n**云端存储**：解析过的文档会自动归档至 GitHub档案库，永不丢失。\n**快速加载**：无需重新解析，点击即看。\n\n3.**🔄 双屏同步阅读**\n左侧显示 PDF 原文，右侧显示解析后的 Markdown。\n**同步滚动**：滚动右侧笔记，左侧 PDF 会自动翻页跟随。\n**对照检查**：精准定位原文，防止信息遗漏。\n\n**🎮 快捷操作指南**\n**字体调整**：使用底部的滑块调整字号，保护视力。\n**全屏阅读**：拖拽中间的分隔条，自由调整左右窗口比例。\n**下载笔记**：点击右侧的`💾 下载 Markdown`，将解析后的Markdown文件保存到本地。 \n**个性壁纸**：点击 `🖼️ 换壁纸` 按钮可上传自定义背景图片（建议为亮色图片），打造专属阅读空间。\n**区域调整**：拖拽中间的灰色分隔条，即可调整左右侧（PDF 和 Markdown）的区域大小。\n**拖动上传**：支持拖动PDF文件到网页，从而上传PDF文件。\n\n提示：上传的文件将自动归档至你的专属目录。\n\n开始你的阅读之旅吧！ 👇";
+            app.render.run();
+
+            // 2. 绑定文件输入
+            document.getElementById('pdfInput').addEventListener('change', async (e) => {
+                const files = e.target.files;
+                if (!files.length) return;
+                
+                if (files.length > 1 && !confirm(`即将批量识别 ${files.length} 个文件？`)) return;
+                
+                for (let i = 0; i < files.length; i++) {
+                    await app.network.handleOCRUpload(files[i], i + 1, files.length);
+                }
+                e.target.value = '';
+            });
+
+            // 3. 字体滑块
+            document.getElementById('fontSizeSlider').addEventListener('input', (e) => {
+                app.dom.preview.style.fontSize = `${e.target.value}px`;
+                document.getElementById('fontSizeVal').textContent = `${e.target.value}px`;
+            });
+
+            // 4. 拖拽支持
+            const body = document.body;
+            ['dragenter','dragover'].forEach(e => body.addEventListener(e, (ev) => { ev.preventDefault(); body.classList.add('drag-over'); }));
+            ['dragleave','drop'].forEach(e => body.addEventListener(e, (ev) => { ev.preventDefault(); body.classList.remove('drag-over'); }));
+            
+            body.addEventListener('drop', async (e) => {
+                const files = Array.from(e.dataTransfer.files).filter(f => f.name.match(/\.(pdf|jpg|png)$/i));
+                if (files.length && confirm(`确认上传 ${files.length} 个文件？`)) {
+                    for (let i = 0; i < files.length; i++) await app.network.handleOCRUpload(files[i], i+1, files.length);
+                }
+            });
+
+            // 5. 左右分栏拖拽
+            const resizer = document.getElementById('dragHandle');
+            const leftPane = document.getElementById('leftPane');
+            let isResizing = false;
+            resizer.addEventListener('mousedown', () => { isResizing = true; body.style.cursor = 'col-resize'; });
+            document.addEventListener('mousemove', e => { if (isResizing) leftPane.style.width = (e.clientX / window.innerWidth) * 100 + '%'; });
+            document.addEventListener('mouseup', () => { isResizing = false; body.style.cursor = 'default'; });
+        });
+    </script>
+</body>
+</html>
