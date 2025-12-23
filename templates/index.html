@@ -32,7 +32,7 @@
             content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background-image: url("{{ url_for('static', filename='assets/bg.png') }}");
             background-size: cover; background-position: center; background-attachment: fixed;
-            opacity: 1; z-index: -1; pointer-events: none;
+            opacity: 1; z-index: -1; pointer-events: none;transition: background-image 0.8s ease-in-out; /* 👈 添加平滑过渡动画 */
         }
 
         /* 拖拽上传覆盖层样式 */
@@ -49,7 +49,7 @@
         .editor-container { width: 40%; height: 100%; display: flex; flex-direction: column; min-width: 200px; z-index: 1; }
         .preview-container { 
             flex: 1; height: 100%; overflow-y: auto; 
-            background-color: rgba(255,255,255,0.9); 
+            background-color: rgba(255,255,255,0.85); 
             padding: 40px; box-sizing: border-box; min-width: 300px; 
             position: relative; z-index: 1;
             font-size: 16px; transition: font-size 0.2s ease;
@@ -58,13 +58,13 @@
 
         /* ==================== 3. UI 组件样式 (Header/Buttons) ==================== */
         .header { 
-            padding: 0 20px; background: #a59aa0; color: white; 
+            padding: 0 20px; background: #ac939a; color: white; 
             display: flex; align-items: center; justify-content: space-between; 
             height: 50px; flex-shrink: 0; 
         }
-        .header-title { font-weight: bold; font-size: 16px; }
+        .header-title { font-size: 21px; font-family: "STXingkai", "STKaiti", "楷体", "华文楷体", serif; }
 
-        .btn-group { display: flex; gap: 10px; }
+        .btn-group { display: flex; gap: 10px; align-items: center; /* 👈 添加这一行，防止按钮纵向拉伸 */ }
         .btn { 
             border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; 
             padding: 6px 12px; font-size: 13px; font-weight: bold; cursor: pointer; 
@@ -84,10 +84,80 @@
         .font-control { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #333; }
         
         textarea#source { 
-            width: 100%; flex-grow: 1; border: none; border-right: 1px solid #ddd; 
-            padding: 20px; font-size: 14px; font-family: 'Consolas', monospace; 
-            resize: none; outline: none; background-color: rgba(252,252,252,0.95); 
+            width: 100%; 
+            flex-grow: 1; 
+            border: none; 
+            /* 关键修复 1：强制内盒模型，防止 padding 把宽度撑开或缩小 */
+            box-sizing: border-box; 
+            padding: 20px; 
+            font-size: 14px; 
+            font-family: 'Consolas', monospace; 
+            resize: none; 
+            outline: none; 
+            /* 或者你喜欢的半透明色，但必须确保它覆盖整个区域 */
+            /* 🟢 关键修改：使用半透明背景 */
+            background-color: rgba(255, 255, 255, 0.8);
+            margin: 0;
         }
+
+        .setting-box {
+            margin: 10px 0;
+        }
+
+        .toggle-container {
+            cursor: pointer;
+            display: block;
+        }
+
+        .toggle-container input {
+            display: none; /* 隐藏原始复选框 */
+        }
+
+        .toggle-card {
+            display: flex;
+            align-items: center;
+            padding: 10px 15px;
+            background: rgba(0, 0, 0, 0.5); /*#f3d0a4*/
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 6px;
+            transition: all 0.3s ease;
+            user-select: none;
+        }
+        .toggle-card span {
+            font-size: 14px;       /* 调整字号大小 */
+            font-weight: 600;     /* 调整粗细 (400为正常, 700为粗体) */
+            color: #ffffff;       /* 调整字体颜色 */
+            font-family: "Inter", "Microsoft YaHei", sans-serif; /* 调整字体族 */
+            letter-spacing: 0.5px; /* 调整字间距，增加学术质感 */
+        }
+
+        /* 选中后的样式 */
+        .toggle-container input:checked + .toggle-card {
+            background: rgba(0, 0, 0, 0.7); /*#f3d0a4*/
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .toggle-container input:checked + .toggle-card #toggleStatus {
+            color: #f3d0a4;
+            font-weight: bold;
+        }
+
+        .toggle-card:hover {
+            background: rgba(0, 0, 0, 0.7); /*#f3d0a4*/
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        #toggleStatus {
+            margin-left: 5px;
+            font-size: 13px; font-weight: bold;
+            color: #f3d0a4;
+        }
+
+        .delete-btn {
+            background: none; border: none; cursor: pointer; padding: 5px 10px;
+            border-radius: 4px; transition: background 0.2s; font-size: 16px;
+        }
+        .delete-btn:hover { background: rgba(255, 0, 0, 0.1); transform: scale(1.1); }
 
         /* ==================== 4. Markdown 与 Math 公式专项优化 ==================== */
         /* 覆盖 Markdown 默认字体，更像论文 */
@@ -143,7 +213,7 @@
 
         /* ==================== 5. PDF 阅读器核心样式 ==================== */
         #pdfViewer {
-            flex: 1; overflow-y: scroll; background-color: #525659;
+            flex: 1; overflow-y: scroll; background-color: rgba(82, 86, 89, 0.75);
             display: none; padding: 10px; box-sizing: border-box;
             /* 关键修复：防止 Flex 布局压缩 */
             min-height: 1px; min-width: 1px;
@@ -159,7 +229,7 @@
         /* 身份登录层 */
         #loginOverlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #bfcfff 0%, #2cade0 100%);
             z-index: 99999; display: flex; justify-content: center; align-items: center; color: white;
             transition: opacity 0.5s ease;
         }
@@ -174,8 +244,25 @@
             border-radius: 12px; padding: 15px; color: white; cursor: pointer; font-weight: bold;
             transition: transform 0.3s;
         }
-        .user-btn:hover { background: white; color: #764ba2; transform: translateY(-5px); }
+        .user-btn:hover { background: white; color: #194a7a; transform: translateY(-5px); }
         .user-avatar { font-size: 30px; display: block; margin-bottom: 10px; }
+
+        /* 1. 调整“选择你的身份”标题字体 */
+        .login-card h2 {
+            font-size: 24px;            /* 显著增大标题 */
+            font-weight: 800;
+            margin-bottom: 30px;
+            letter-spacing: 2px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.2); /* 增加投影，使其在渐变背景下更清晰 */
+        }
+
+        /* 2. 专门增大登录层内的按钮字体，使其区别于页面内的小按钮 */
+        #loginOverlay .user-btn {
+            font-size: 17px;            /* 将用户名字体调大（之前通常是 13px 或 14px） */
+            padding: 20px 10px;         /* 增加内边距，让大号文字有足够的呼吸空间 */
+            letter-spacing: 1px;        /* 增加字间距，提升高级感 */
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
 
         /* 加载中遮罩 */
         #loadingOverlay { 
@@ -227,9 +314,14 @@
                 <input type="file" id="pdfInput" accept=".pdf,.png,.jpg,.jpeg" multiple style="display:none">
                 <input type="file" id="bgInput" accept=".png,.jpg,.jpeg,.webp" style="display:none">
 
-                <div class="control-item">
-                    <input type="checkbox" id="translateToggle" style="margin-right: 6px; cursor: pointer;">
-                    <label for="translateToggle" style="cursor: pointer; font-size: 13px; color: #555;">开启AI双语翻译</label>
+                <div class="setting-box" id="translationPreset">
+                    <label class="toggle-container">
+                        <input type="checkbox" id="translateToggle">
+                        <span class="toggle-card">
+                            <i class="icon-translate"></i>
+                            <span class="status-text">Deepseek 翻译：<span id="toggleStatus">关闭</span></span>
+                        </span>
+                    </label>
                 </div>
 
                 <button class="btn btn-picture" onclick="document.getElementById('bgInput').click()">🖼️ 壁纸</button>
@@ -315,7 +407,7 @@
                 setTimeout(() => overlay.style.display = 'none', 500);
                 
                 document.title = `文档阅读器 - ${name}`;
-                document.querySelector('.header-title').innerText = `论文阅读器.user:${name}`;
+                document.querySelector('.header-title').innerText = `论文阅读器`;
                 console.log(`✅ 身份已确认为: ${name} (${id})`);
 
                 // ==================== 🟢 新增：触发后台预加载 ====================
@@ -660,8 +752,6 @@
             // 处理文件上传与 OCR
             handleOCRUpload: async (file, current, total) => {
 
-                // 1. 立即锁定翻译开关，防止识别过程中或结束后二次点击
-                app.dom.translateToggle.disabled = true; 
                 const isTranslationMode = app.dom.translateToggle.checked;
 
                 // UI 状态更新
@@ -764,7 +854,23 @@
                         div.style.cssText = "padding: 12px; border-bottom: 1px solid #eee; cursor: pointer;";
                         div.onmouseover = () => div.style.background = "#f0f8ff";
                         div.onmouseout = () => div.style.background = "white";
-                        div.innerHTML = `<div><b>${item.name}</b></div><div style="font-size:12px;color:#888;">${new Date(item.timestamp*1000).toLocaleString()}</div>`;
+                        // 🟢 核心修改：判断 timestamp 是否大于 0
+                        // 如果是 0（后续记录），则只显示名称；否则显示名称 + 时间
+                        const timeHtml = item.timestamp > 0 
+                            ? `<div style="font-size:12px;color:#888;">${new Date(item.timestamp * 1000).toLocaleString()}</div>` 
+                            : '';
+
+                        // 在循环生成列表项时修改 HTML
+                        div.innerHTML = `
+                            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                                <div onclick="app.network.loadHistoryItem(event, ${JSON.stringify(item).replace(/"/g, '&quot;')})">
+                                    <b>${item.name}</b>
+                                    ${timeHtml}
+                                </div>
+                                <button class="delete-btn" onclick="app.network.deleteItem(event, '${item.pdf_path}', '${item.md_path}')">🗑️</button>
+                            </div>
+                        `;
+
                         div.onclick = () => app.network.loadHistoryItem(item);
                         listContainer.appendChild(div);
                     });
@@ -776,7 +882,6 @@
 
                 // 打开历史文档时，关闭翻译开关并锁定
                 app.dom.translateToggle.checked = false;
-                app.dom.translateToggle.disabled = true;
 
                 app.ui.setLoading(true, "正在从云端拉取...", "数据来自 GitHub 档案库");
                 
@@ -792,6 +897,37 @@
                     window.requestAnimationFrame(() => app.pdf.render(item.pdf_url));
                 } catch (e) { alert("加载失败"); } 
                 finally { app.ui.setLoading(false); }
+            },
+
+            deleteItem: async (event, pdfPath, mdPath) => {
+                event.stopPropagation(); // 防止触发加载文档事件
+                        
+                if (!confirm("确定要彻底删除该文档及其云端备份吗？此操作不可撤销。")) return;
+                        
+                app.ui.setLoading(true, "正在从 GitHub 永久抹除数据...", "同步更新档案库中...");
+                        
+                try {
+                    const res = await fetch('/history/delete', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            user: app.state.currentUser,
+                            pdf_path: pdfPath,
+                            md_path: mdPath
+                        })
+                    });
+                    
+                    if (res.ok) {
+                        alert("删除成功");
+                        app.network.fetchHistory(); // 重新拉取列表
+                    } else {
+                        throw new Error("删除失败");
+                    }
+                } catch (e) {
+                    alert(e.message);
+                } finally {
+                    app.ui.setLoading(false);
+                }
             }
         };
 
@@ -834,6 +970,12 @@
                 e.target.value = '';
             });
 
+            // 在 app.init 或页面加载时添加
+            document.getElementById('translateToggle').addEventListener('change', function(e) {
+                const statusText = document.getElementById('toggleStatus');
+                statusText.innerText = e.target.checked ? "开启" : "关闭";
+            });
+
             // 3. 字体滑块
             document.getElementById('fontSizeSlider').addEventListener('input', (e) => {
                 app.dom.preview.style.fontSize = `${e.target.value}px`;
@@ -859,7 +1001,31 @@
             resizer.addEventListener('mousedown', () => { isResizing = true; body.style.cursor = 'col-resize'; });
             document.addEventListener('mousemove', e => { if (isResizing) leftPane.style.width = (e.clientX / window.innerWidth) * 100 + '%'; });
             document.addEventListener('mouseup', () => { isResizing = false; body.style.cursor = 'default'; });
-        });
+
+            // 6. 换壁纸逻辑
+            document.getElementById('bgInput').addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        const bgLayer = document.getElementById('bgLayer');
+                        // 将读取到的图片设置为背景
+                        bgLayer.style.backgroundImage = `url('${event.target.result}')`;
+                        console.log("✅ 壁纸已更换");
+
+                        // 可选：将壁纸保存到本地缓存，刷新页面也不丢失
+                        localStorage.setItem('user_wallpaper', event.target.result);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+
+            // 页面加载时恢复上次保存的壁纸
+            const savedBg = localStorage.getItem('user_wallpaper');
+            if (savedBg) {
+                document.getElementById('bgLayer').style.backgroundImage = `url('${savedBg}')`;
+            }
+                    });
     </script>
 </body>
 </html>

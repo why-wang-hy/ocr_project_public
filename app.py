@@ -156,39 +156,45 @@ def _fetch_github_data(user_id):
                     'path': path
                 })
 
-        # 2. 第二步：获取时间戳并展平结果
+        # --- 🟢 核心修改部分：仅请求前 7 个记录的时间戳 ---
+        # 1. 获取所有有 PDF 的组名
+        group_keys = [k for k, v in files_groups.items() if v['pdf']]
+        
+        # 2. 这里的 group_keys 顺序通常是 GitHub 返回的顺序（通常按名称排序）
+        # 我们取前 7 个进行时间戳请求
+        for i, origin_base in enumerate(group_keys):
+            if i >= 7: break # 超过 7 个则跳过请求，保持 timestamp 为 0
+            
+            data = files_groups[origin_base]
+            try:
+                commit_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/commits"
+                c_resp = requests.get(commit_url, 
+                                    params={'path': data['pdf'], 'per_page': 1},
+                                    headers=GH_HEADERS)
+                if c_resp.status_code == 200 and c_resp.json():
+                    date_str = c_resp.json()[0]['commit']['committer']['date']
+                    data['timestamp'] = datetime.datetime.fromisoformat(date_str.replace('Z', '+00:00')).timestamp()
+            except Exception as e:
+                print(f"⚠️ 获取时间戳失败 ({origin_base}): {e}")
+
+        # 3. 展平并构建最终列表
         history_items = []
         for origin_base, data in files_groups.items():
-            # 只要有 PDF 且至少有一个 MD 就可以显示
             if data['pdf'] and data['mds']:
-                # 仅为该 PDF 请求一次最新的 commit 时间（优化网络开销）
-                current_ts = 0
-                try:
-                    commit_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/commits"
-                    c_resp = requests.get(commit_url, 
-                                        params={'path': data['pdf'], 'per_page': 1},
-                                        headers=GH_HEADERS)
-                    if c_resp.status_code == 200 and c_resp.json():
-                        date_str = c_resp.json()[0]['commit']['committer']['date']
-                        current_ts = datetime.datetime.fromisoformat(date_str.replace('Z', '+00:00')).timestamp()
-                except:
-                    current_ts = 0
-
-                # 为每个 MD 版本创建一个历史条目
                 for md_info in data['mds']:
                     history_items.append({
                         'name': md_info['display_name'],
                         'pdf_path': data['pdf'],
                         'md_path': md_info['path'],
-                        'timestamp': current_ts
+                        'timestamp': data['timestamp']
                     })
         
-        # 4. 排序
+        # 按时间戳降序排序（最近的在前）
         history_items.sort(key=lambda x: x['timestamp'], reverse=True)
         
-        # 5. 更新缓存
-        HISTORY_CACHE[user_id] = history_items
-        print(f"✅ [Cache Worker] {user_id} 缓存已更新，共 {len(history_items)} 条记录")
+        # 更新缓存
+        history_manager.set(user_id, history_items)
+        print(f"✅ [Cache Worker] {user_id} 缓存已更新，请求了前 7 项时间戳")
         return history_items
 
     except Exception as e:
@@ -911,6 +917,60 @@ def translate_file():
 
     except Exception as e:
         traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+    
+@app.route('/history/delete', methods=['POST'])
+def delete_history():
+    data = request.json
+    user_id = data.get('user')
+    pdf_path = data.get('pdf_path')
+    md_path = data.get('md_path')
+    
+    if not user_id or not pdf_path or not md_path:
+        return jsonify({'error': '参数不完整'}), 400
+
+    try:
+        # 1. 定义需要尝试删除的文件路径列表
+        # 包含 PDF、原始 MD 和可能存在的 双语版 MD
+        files_to_delete = [
+            pdf_path, 
+            md_path, 
+            md_path.replace('.md', '_dual.md')
+        ]
+        
+        results = []
+        for path in files_to_delete:
+            # 2. 获取文件的 SHA 值（GitHub 删除文件必须提供 SHA）
+            url = f"{GITHUB_API_BASE}/{urllib.parse.quote(path)}"
+            resp = requests.get(url, headers=GH_HEADERS)
+            
+            if resp.status_code == 200:
+                sha = resp.json().get('sha')
+                
+                # 3. 执行删除操作
+                del_payload = {
+                    "message": f"🗑️ 彻底删除文档: {path}",
+                    "sha": sha,
+                    "branch": GITHUB_BRANCH
+                }
+                del_resp = requests.delete(url, json=del_payload, headers=GH_HEADERS)
+                results.append(f"{path}: {del_resp.status_code}")
+            else:
+                results.append(f"{path}: 跳过 (文件不存在)")
+
+        # 4. 关键：删除后必须强制刷新本地缓存
+        # 这样下次前端请求列表时，看到的就是更新后的数据
+        print(f"♻️ 文件删除成功，正在刷新 {user_id} 的缓存...")
+        _fetch_github_data(user_id)
+        
+        return jsonify({
+            'status': 'success', 
+            'details': results,
+            'message': '文件已从 GitHub 物理删除并同步缓存'
+        })
+        
+    except Exception as e:
+        print(f"❌ 删除失败: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
