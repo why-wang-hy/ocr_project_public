@@ -31,15 +31,14 @@ load_dotenv()
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+# --- GitHub 配置 (用于云端存储和历史记录) ---
+GITHUB_USER = os.getenv("GITHUB_USER", "")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "")
+GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "")
 
 # ==============================================================================
 # 🟢 第一部分：全局配置区域 (Configuration)
 # ==============================================================================
-
-# --- GitHub 配置 (用于云端存储和历史记录) ---
-GITHUB_USER = "why-wang-hy"
-GITHUB_REPO = "ocr-team-docs"
-GITHUB_BRANCH = "main"
 
 # GitHub API 构造
 GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents"
