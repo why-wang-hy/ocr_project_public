@@ -116,6 +116,7 @@ python app.py
 本项目集成了多项优秀的开源技术，在此向以下项目及其社区表示由衷的感谢：
 
 核心解析与渲染
+
 PDF.js：由 Mozilla 维护的强大 PDF 解析库，支撑了项目的文档预览功能。
 
 Marked.js：极速的 Markdown 解析器，用于将 OCR 结果实时转换为可视化的 HTML。
@@ -123,6 +124,7 @@ Marked.js：极速的 Markdown 解析器，用于将 OCR 结果实时转换为�
 MathJax：为项目提供了近乎完美的 LaTeX 数学公式渲染支持。
 
 AI 与 API 支撑
+
 DeepSeek API / Mistral AI：为本项目提供了高性能的学术级大语言模型支持。
 
 GitHub REST API：支撑了文档的远程持久化存储与历史记录管理。
