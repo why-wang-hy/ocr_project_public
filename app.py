@@ -53,9 +53,9 @@ BASE_STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'stat
 
 # --- 用户身份映射 ---
 USERS = {
-    's1': '王浩懿',
-    's2': '王牧虹',
-    's3': '陈妤何',
+    's1': '同伴 A',
+    's2': '同伴 B',
+    's3': '同伴 C',
     's4': '同伴 D',
     's5': '同伴 E',
     's6': '同伴 F',
