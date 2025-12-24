@@ -111,61 +111,46 @@ def upload_to_github(file_path, target_path, commit_message):
 # ==================== 🟢 提取：独立的 GitHub 获取函数 ====================
 # 这个函数负责干脏活累活，不直接处理 HTTP 请求，方便被各种路由调用
 def _fetch_github_data(user_id):
-    """
-    功能：连接 GitHub API 获取原始数据，计算时间戳，返回处理后的列表。
-    注意：这是一个耗时操作 (1-3秒)。
-    """
+    # 1. 获取当前目录下所有文件
     contents_url = f"{GITHUB_API_BASE}/{user_id}"
-    print(f"🔄 [Cache Worker] 正在后台拉取 {user_id} 的数据...")
+    resp = requests.get(contents_url, headers=GH_HEADERS)
+    if resp.status_code != 200: return []
     
-    try:
-        # 1. 获取文件列表
-        resp = requests.get(contents_url, headers=GH_HEADERS)
-        if resp.status_code != 200: 
-            print(f"⚠️ [Cache Worker] 获取列表失败: {resp.status_code}")
-            return []
+    items = resp.json()
+    files_groups = {}
+    
+    # 2. 正常进行分组逻辑
+    for item in items:
+        if item['type'] != 'file': continue
+        full_name = item['name']
+        path = item['path']
+        base_name, ext = os.path.splitext(full_name)
+        ext = ext.lower()
 
-        items = resp.json()
-        if not isinstance(items, list): return []
+        is_dual = base_name.endswith('_dual')
+        origin_base = base_name.replace('_dual', '') if is_dual else base_name
 
-        # 1. 第一步：先扫描所有文件，按原始 PDF 名称归类
-        # 结构：{ "文件名": { "pdf": path, "mds": [{"name": "显示名", "path": path}], "time": 0 } }
-        files_groups = {}
+        if origin_base not in files_groups:
+            files_groups[origin_base] = {'pdf': None, 'mds': [], 'timestamp': 0}
 
-        for item in items:
-            if item['type'] != 'file': continue
-            full_name = item['name']
-            path = item['path']
-            base_name, ext = os.path.splitext(full_name)
-            ext = ext.lower()
+        if ext in ['.pdf', '.jpg', '.png']:
+            files_groups[origin_base]['pdf'] = path
+        elif ext == '.md':
+            display_name = f"{origin_base} (双语)" if is_dual else origin_base
+            files_groups[origin_base]['mds'].append({'display_name': display_name, 'path': path})
 
-            # 判断是否是双语版
-            is_dual = base_name.endswith('_dual')
-            # 统一找回原始 PDF 的 base_name (去掉 _dual)
-            origin_base = base_name.replace('_dual', '') if is_dual else base_name
+    # 3. 🟢 核心修复：基于文件名的数字部分进行逆序排列
+    # 这样排在最前面的一定是时间戳最大的（即最近上传的）
+    sorted_group_keys = sorted(files_groups.keys(), reverse=True)
 
-            if origin_base not in files_groups:
-                files_groups[origin_base] = {'pdf': None, 'mds': [], 'timestamp': 0}
-
-            if ext in ['.pdf', '.jpg', '.png']:
-                files_groups[origin_base]['pdf'] = path
-            elif ext == '.md':
-                display_name = f"{origin_base} (双语)" if is_dual else origin_base
-                files_groups[origin_base]['mds'].append({
-                    'display_name': display_name,
-                    'path': path
-                })
-
-        # --- 🟢 核心修改部分：仅请求前 7 个记录的时间戳 ---
-        # 1. 获取所有有 PDF 的组名
-        group_keys = [k for k, v in files_groups.items() if v['pdf']]
+    # 4. 🟢 只针对前 7 个“存在的”组进行具体时间戳查询
+    count = 0
+    for origin_base in sorted_group_keys:
+        if count >= 7: break
         
-        # 2. 这里的 group_keys 顺序通常是 GitHub 返回的顺序（通常按名称排序）
-        # 我们取前 7 个进行时间戳请求
-        for i, origin_base in enumerate(group_keys):
-            if i >= 7: break # 超过 7 个则跳过请求，保持 timestamp 为 0
-            
-            data = files_groups[origin_base]
+        data = files_groups[origin_base]
+        # 只有存在 PDF 的组才计入查询额度
+        if data['pdf']:
             try:
                 commit_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/commits"
                 c_resp = requests.get(commit_url, 
@@ -174,32 +159,28 @@ def _fetch_github_data(user_id):
                 if c_resp.status_code == 200 and c_resp.json():
                     date_str = c_resp.json()[0]['commit']['committer']['date']
                     data['timestamp'] = datetime.datetime.fromisoformat(date_str.replace('Z', '+00:00')).timestamp()
-            except Exception as e:
-                print(f"⚠️ 获取时间戳失败 ({origin_base}): {e}")
+            except Exception:
+                pass
+            count += 1
 
-        # 3. 展平并构建最终列表
-        history_items = []
-        for origin_base, data in files_groups.items():
-            if data['pdf'] and data['mds']:
-                for md_info in data['mds']:
-                    history_items.append({
-                        'name': md_info['display_name'],
-                        'pdf_path': data['pdf'],
-                        'md_path': md_info['path'],
-                        'timestamp': data['timestamp']
-                    })
-        
-        # 按时间戳降序排序（最近的在前）
-        history_items.sort(key=lambda x: x['timestamp'], reverse=True)
-        
-        # 更新缓存
-        history_manager.set(user_id, history_items)
-        print(f"✅ [Cache Worker] {user_id} 缓存已更新，请求了前 7 项时间戳")
-        return history_items
-
-    except Exception as e:
-        print(f"❌ [Cache Worker] Error: {e}")
-        return []
+    # 5. 构建最终列表（保持排序顺序）
+    history_items = []
+    for origin_base in sorted_group_keys:
+        data = files_groups[origin_base]
+        if data['pdf'] and data['mds']:
+            for md_info in data['mds']:
+                history_items.append({
+                    'name': md_info['display_name'],
+                    'pdf_path': data['pdf'],
+                    'md_path': md_info['path'],
+                    'timestamp': data['timestamp']
+                })
+    
+    # 最后一次根据 timestamp 强制校准（确保前7个在最上，其余在下）
+    history_items.sort(key=lambda x: x['timestamp'], reverse=True)
+    
+    history_manager.set(user_id, history_items)
+    return history_items
     
 # ==================== 🟢 新增：后台刷新任务 ====================
 def background_refresh_task(user_id):

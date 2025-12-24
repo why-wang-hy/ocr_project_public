@@ -58,7 +58,7 @@
 
         /* ==================== 3. UI 组件样式 (Header/Buttons) ==================== */
         .header { 
-            padding: 0 20px; background: #ac939a; color: white; 
+            padding: 0 20px; background: #b5b5bf; color: white; 
             display: flex; align-items: center; justify-content: space-between; 
             height: 50px; flex-shrink: 0; 
         }
@@ -303,8 +303,8 @@
     <div id="bgLayer"></div>
     <div id="loadingOverlay">
         <div class="spinner"></div>
-        <p style="margin-top: 15px; color: #333; font-weight: bold;">AI 正在进行版面分析与转换...</p>
-        <p style="font-size: 12px; color: #666;">由于PDF为AI视觉读取，大文件可能需要 2-3 分钟，请歇歇脚，不要刷新哦</p>
+        <p style="margin-top: 15px; color: #333; font-weight: bold;">MISTRAL AI 正在进行版面分析与转换...</p>
+        <p style="font-size: 12px; color: #666;">由于PDF为AI视觉读取，大文件可能需要 1-2 分钟，请歇歇脚，不要刷新哦</p>
     </div>
 
     <div class="editor-container" id="leftPane">
@@ -411,8 +411,6 @@
                 console.log(`✅ 身份已确认为: ${name} (${id})`);
 
                 // ==================== 🟢 新增：触发后台预加载 ====================
-                // 这是一个“发射后不管”的请求，不需要 await
-                console.log("🚀 触发后台历史记录预加载...");
                 fetch('/history/preload', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -605,7 +603,7 @@
                 const combinedRegex = new RegExp(`^.*(${regions})\\s*(${models}).*$`, 'gm');
 
                 // B. 特征匹配：只要包含这些词，整行通常都是广告 (例如：获取更多资讯)
-                const adFeatures = '资讯|数学模型|数字模型|上海|天津|文汇|云江|太江|云计|交往|数学院所|國立臺灣大學';
+                const adFeatures = '资讯|数学模型|数字模型|上海|天津|文汇|云江|太江|云计|交往|数学院所|國立臺灣大學|文江';
                 const featureRegex = new RegExp(`^.*(${adFeatures}).*$`, 'gm');
 
                 clean = clean.replace(combinedRegex, "")  // 只有 地区+模型 同时出现才删
@@ -630,6 +628,11 @@
         app.pdf = {
             // 渲染 PDF 文件或 URL
             render: async (fileOrUrl) => {
+                // 🟢 1. 增加防御性校验
+                if (!fileOrUrl) {
+                    return;
+                }
+
                 const viewer = app.dom.pdfViewer;
                 app.dom.source.style.display = 'none';
                 viewer.style.display = 'block';
@@ -669,6 +672,7 @@
                 app.pdf.bindSyncScroll();
             },
 
+
             // 重新设计的同步滚动监听
             bindSyncScroll: () => {
                 const preview = app.dom.preview;
@@ -682,8 +686,9 @@
                     if (!markers.length || pdfViewer.style.display === 'none') return;
                 
                     const previewScrollTop = preview.scrollTop;
-                    // 降低触发线灵敏度，设为视口顶部
-                    const triggerPoint = previewScrollTop; 
+                    // 🟢 核心修改：将触发点设置在预览窗口高度的 30% 处
+                    // 这样当标志线进入你视野的中上部时，PDF 就会提前翻页
+                    const triggerPoint = previewScrollTop + (preview.clientHeight * 0.3); 
                 
                     let activeIndex = 0;
                     for (let i = 0; i < markers.length; i++) {
@@ -699,27 +704,6 @@
                     const currentPageNum = activeIndex + 1;
                 
                     let progress = 0;
-                    let debugData = {
-                        "当前页码": currentPageNum,
-                        "预览区滚动位": Math.round(previewScrollTop),
-                        "当前Marker位置": currentMarker.offsetTop,
-                    };
-                
-                    if (nextMarker) {
-                        const range = nextMarker.offsetTop - currentMarker.offsetTop;
-                        const offset = previewScrollTop - currentMarker.offsetTop;
-                        progress = offset / range;
-
-                        debugData["下一页Marker"] = nextMarker.offsetTop;
-                        debugData["两Marker间距(px)"] = range;
-                        debugData["页内进度%"] = (progress * 100).toFixed(2) + "%";
-                    }
-                
-                    // 🟢 控制台调试输出 (关键)
-                    if (app.state.debugMode) {
-                        console.clear();
-                        console.table(debugData);
-                    }
                 
                     isScrolling = true;
                     app.pdf.smoothSync(currentPageNum, progress);
@@ -740,7 +724,6 @@
                         top: currentPageElement.offsetTop,
                         behavior: 'smooth' // 使用平滑滚动，不干扰视线
                     });
-                    console.log(`[同步] 已跳转至 PDF 第 ${pageNum} 页`);
                 }
             }
         };
@@ -817,7 +800,7 @@
 
             performTranslation: async (ghPath) => {
                 if (!ghPath) return;
-                app.ui.setLoading(true, "正在调用 DeepSeek 进行学术翻译...", "正在保护公式并重组双语段落...");
+                app.ui.setLoading(true, "正在调用 DeepSeek 进行学术翻译...", "正在保护公式并重组双语段落，可能需要1-2分钟...");
                 
                 try {
                     const res = await fetch('/translate', {
@@ -883,7 +866,7 @@
                 // 打开历史文档时，关闭翻译开关并锁定
                 app.dom.translateToggle.checked = false;
 
-                app.ui.setLoading(true, "正在从云端拉取...", "数据来自 GitHub 档案库");
+                app.ui.setLoading(true, "正在从云端拉取...", "数据来自 GitHub 档案库（左侧PDF后拉取，可能会慢一点）");
                 
                 app.state.currentMdPath = item.md_path;
                 app.dom.translateToggle.checked = false;
@@ -902,7 +885,7 @@
             deleteItem: async (event, pdfPath, mdPath) => {
                 event.stopPropagation(); // 防止触发加载文档事件
                         
-                if (!confirm("确定要彻底删除该文档及其云端备份吗？此操作不可撤销。")) return;
+                if (!confirm("确定要彻底删除该文档记录及其云端备份吗？此操作不可撤销。")) return;
                         
                 app.ui.setLoading(true, "正在从 GitHub 永久抹除数据...", "同步更新档案库中...");
                         
@@ -954,7 +937,7 @@
         // 初始化
         document.addEventListener('DOMContentLoaded', () => {
             // 1. 设置默认欢迎语
-            app.dom.source.value = "# 欢迎使用论文阅读器\n\n这是一个专为我们小队打造的**全能文档解析与阅读平台**。在这里，你可以轻松将英文PDF论文转换为高质量的 Markdown文本，并搭配**沉浸式翻译**浏览器插件进行翻译。\n\n **✨核心功能一览**\n\n1.**☁️ 智能 PDF 识别**\n 点击上方的`☁️ PDF识别`按钮，上传你的 PDF文件。\n**模型驱动**：利用 Mistral AI大模型通过视觉OCR进行深度版面分析。\n**公式还原**：完美支持 LaTeX 数学公式，如 $\\oint_C \\mathbf{F} \\cdot d\\mathbf{r} = \\iint_S (\\nabla \\times \\mathbf{F}) \\cdot d\\mathbf{S}$。\n**图文并茂**：图片会自动嵌入文档，无需担心丢失。\n\n2.**📜 历史档案库**\n 点击`📂 历史记录`，随时回溯你的文档。\n**身份隔离**：每位成员拥有独立的历史记录。\n**云端存储**：解析过的文档会自动归档至 GitHub档案库，永不丢失。\n**快速加载**：无需重新解析，点击即看。\n\n3.**🔄 双屏同步阅读**\n左侧显示 PDF 原文，右侧显示解析后的 Markdown。\n**同步滚动**：滚动右侧笔记，左侧 PDF 会自动翻页跟随。\n**对照检查**：精准定位原文，防止信息遗漏。\n\n**🎮 快捷操作指南**\n**字体调整**：使用底部的滑块调整字号，保护视力。\n**全屏阅读**：拖拽中间的分隔条，自由调整左右窗口比例。\n**下载笔记**：点击右侧的`💾 下载 Markdown`，将解析后的Markdown文件保存到本地。 \n**个性壁纸**：点击 `🖼️ 换壁纸` 按钮可上传自定义背景图片（建议为亮色图片），打造专属阅读空间。\n**区域调整**：拖拽中间的灰色分隔条，即可调整左右侧（PDF 和 Markdown）的区域大小。\n**拖动上传**：支持拖动PDF文件到网页，从而上传PDF文件。\n\n提示：上传的文件将自动归档至你的专属目录。\n\n开始你的阅读之旅吧！ 👇";
+            app.dom.source.value = "# 欢迎使用论文阅读器\n\n这是一个专为我们小队打造的**全能文档解析与阅读平台**。在这里，你可以轻松将英文PDF论文转换为高质量的 Markdown文本，并搭配**沉浸式翻译**浏览器插件(推荐)或使用开发的`Deepseek翻译`进行翻译。\n\n **✨核心功能一览**\n\n1.**☁️ 智能 PDF 识别**\n 点击上方的`☁️ PDF识别`按钮，上传你的 PDF文件。\n**模型驱动**：利用 Mistral AI大模型通过视觉OCR进行深度版面分析。\n**公式还原**：完美支持 LaTeX 数学公式，如 $\\oint_C \\mathbf{F} \\cdot d\\mathbf{r} = \\iint_S (\\nabla \\times \\mathbf{F}) \\cdot d\\mathbf{S}$。\n**图文并茂**：图片会自动嵌入文档，无需担心丢失。\n\n2.**📜 历史档案库**\n 点击`📂 历史记录`，随时回溯你的文档。\n**历史记录**：每位成员拥有独立的历史记录。\n**云端存储**：解析过的文档会自动归档至 GitHub档案库，永不丢失。\n**快速加载**：无需重新解析，点击即看。\n\n3.**🔄 双屏同步阅读**\n左侧显示 PDF 原文，右侧显示解析后的 Markdown。\n**同步滚动**：滚动右侧笔记，左侧 PDF 会自动翻页跟随。\n**对照检查**：精准定位原文，防止信息遗漏。\n\n4.**🌐 大模型双语翻译**\n点击顶部的`Deepseek翻译`即可开启翻译预设模式（翻译即将上传的PDF论文）。该功能支持“连续阅读”需求：你可以在阅读当前文档时提前勾选，系统将自动为接下来上传的所有文件生成中英双语对照。\n\n**🎮 快捷操作指南**\n**字体调整**：使用底部的滑块调整字号，保护视力。\n**全屏阅读**：拖拽中间的分隔条，自由调整左右窗口比例。\n**下载笔记**：点击右侧的`💾 下载 Markdown`，将解析后的Markdown文件保存到本地。 \n**个性壁纸**：点击 `🖼️ 换壁纸` 按钮可上传自定义背景图片（建议为亮色图片），打造专属阅读空间。\n**区域调整**：拖拽中间的灰色分隔条，即可调整左右侧（PDF 和 Markdown）的区域大小。\n**拖动上传**：支持拖动PDF文件到网页，从而上传PDF文件。\n\n提示：上传的文件将自动归档至你的专属目录。\n\n开始你的阅读之旅吧！ ";
             app.render.run();
 
             // 2. 绑定文件输入
